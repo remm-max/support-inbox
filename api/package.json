@@ -1,0 +1,24 @@
+{
+  "name": "support-inbox-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "migrate": "tsx src/migrate.ts",
+    "seed": "tsx src/seed.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "graphql": "^16.9.0",
+    "graphql-yoga": "^5.7.0",
+    "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "@types/pg": "^8.11.8",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}
