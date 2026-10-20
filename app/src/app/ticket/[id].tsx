@@ -14,6 +14,7 @@ import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { RequireAuth } from "../../lib/auth";
 import {
   addReply,
+  draftReply,
   fetchTicket,
   setTicketStatus,
   type TicketDetail,
@@ -28,6 +29,9 @@ function TicketScreenInner() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const [prevDraft, setPrevDraft] = useState<string | null>(null);
+  const [aiDrafted, setAiDrafted] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -51,11 +55,29 @@ function TicketScreenInner() {
     try {
       await addReply(ticket.id, draft);
       setDraft("");
+      setPrevDraft(null);
+      setAiDrafted(false);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
       setSending(false);
+    }
+  };
+
+  const draftWithAi = async () => {
+    if (!ticket) return;
+    setDrafting(true);
+    setError(null);
+    try {
+      const text = await draftReply(ticket.id);
+      setPrevDraft(draft); // lets the agent undo if they had typed something
+      setDraft(text);
+      setAiDrafted(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setDrafting(false);
     }
   };
 
@@ -119,6 +141,31 @@ function TicketScreenInner() {
       </ScrollView>
 
       <View style={styles.composer}>
+        <View style={styles.aiRow}>
+          <Pressable
+            onPress={draftWithAi}
+            disabled={drafting}
+            style={[styles.aiBtn, drafting && { opacity: 0.6 }]}
+          >
+            {drafting ? (
+              <ActivityIndicator />
+            ) : (
+              <Text style={styles.aiBtnText}>Draft with AI</Text>
+            )}
+          </Pressable>
+          {prevDraft !== null && (
+            <Pressable
+              onPress={() => {
+                setDraft(prevDraft);
+                setPrevDraft(null);
+                setAiDrafted(false);
+              }}
+            >
+              <Text style={styles.aiUndo}>Undo</Text>
+            </Pressable>
+          )}
+          {aiDrafted && <Text style={styles.aiNote}>AI draft: check before sending</Text>}
+        </View>
         <TextInput
           style={styles.composerInput}
           value={draft}
@@ -153,6 +200,11 @@ const styles = StyleSheet.create({
   bubbleText: { fontSize: 15, lineHeight: 21, color: "#1C1917" },
   error: { color: "#B91C1C", marginTop: 6 },
   composer: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#D6D3D1", padding: 12, gap: 8, backgroundColor: "#FAFAF9" },
+  aiRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  aiBtn: { borderWidth: 1, borderColor: "#D6D3D1", borderRadius: 8, paddingVertical: 7, paddingHorizontal: 12, minWidth: 110, alignItems: "center" },
+  aiBtnText: { fontSize: 13, fontWeight: "600", color: "#44403C" },
+  aiUndo: { fontSize: 13, color: "#44403C", textDecorationLine: "underline" },
+  aiNote: { fontSize: 12, color: "#78716C", flexShrink: 1 },
   composerInput: {
     borderWidth: 1,
     borderColor: "#D6D3D1",

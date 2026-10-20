@@ -138,3 +138,11 @@ export async function signup(
   );
   return data.signup;
 }
+
+export async function draftReply(ticketId: string): Promise<string> {
+  const data = await gql<{ draftReply: string }>(
+    `mutation ($ticketId: ID!) { draftReply(ticketId: $ticketId) }`,
+    { ticketId },
+  );
+  return data.draftReply;
+}

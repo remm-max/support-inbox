@@ -3,6 +3,7 @@ import { GraphQLError } from "graphql";
 import bcrypt from "bcryptjs";
 import { pool } from "./db.js";
 import { signToken, type Ctx } from "./auth.js";
+import { generateDraft, checkDraftRate } from "./ai.js";
 
 type TicketRow = {
   id: number;
@@ -102,6 +103,7 @@ export const schema = createSchema<Ctx>({
       createTicket(subject: String!, body: String!, customerEmail: String!): Ticket!
       addReply(ticketId: ID!, body: String!): Reply!
       setTicketStatus(id: ID!, status: TicketStatus!): Ticket!
+      draftReply(ticketId: ID!): String!
     }
   `,
   resolvers: {
@@ -213,6 +215,28 @@ export const schema = createSchema<Ctx>({
           [ticketId, body],
         );
         return toReply(rows[0]);
+      },
+
+      // Returns text only. Nothing is saved or sent until an agent edits and posts it.
+      draftReply: async (_: unknown, args: { ticketId: string }, ctx: Ctx) => {
+        const user = requireUser(ctx);
+        checkDraftRate(user.id);
+        const id = Number(args.ticketId);
+        const t = await pool.query<TicketRow>("SELECT * FROM tickets WHERE id = $1", [id]);
+        if (!t.rows[0]) throw bad("That ticket doesn't exist.");
+        const r = await pool.query<ReplyRow>(
+          "SELECT * FROM replies WHERE ticket_id = $1 ORDER BY created_at ASC, id ASC",
+          [id],
+        );
+        const ticket = t.rows[0];
+        const thread = r.rows
+          .slice(-10)
+          .map((x) => `${x.author === "agent" ? "Agent" : "Customer"}: ${x.body}`)
+          .join("\n\n");
+        const text =
+          `Subject: ${ticket.subject}\nCustomer: ${ticket.customer_email}\n\nOriginal message:\n${ticket.body}` +
+          (thread ? `\n\nConversation so far:\n${thread}` : "");
+        return generateDraft(text);
       },
 
       setTicketStatus: async (

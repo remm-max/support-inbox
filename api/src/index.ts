@@ -7,7 +7,7 @@ const yoga = createYoga<Record<string, never>, Ctx>({
   schema,
   context: ({ request }) => ({ user: userFromRequest(request) }),
   cors: {
-    origin: "*", // tighten to your deployed web origin before real users
+    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : "*", // tighten to your deployed web origin before real users
     allowedHeaders: ["Content-Type", "Authorization"],
   },
 });
