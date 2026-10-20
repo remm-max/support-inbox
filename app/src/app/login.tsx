@@ -80,7 +80,7 @@ export default function Login() {
         )}
 
         {error && <Text style={styles.error}>{error}</Text>}
-
+   {submitting && <Text style={styles.hint}>The server sleeps when idle, so the first request can take up to a minute.</Text>}
         <Pressable
           style={[styles.submit, submitting && { opacity: 0.6 }]}
           onPress={submit}
@@ -127,6 +127,7 @@ const styles = StyleSheet.create({
     color: "#1C1917",
   },
   error: { color: "#B91C1C", marginTop: 10 },
+  hint: { color: "#78716C", marginTop: 10, fontSize: 13 },
   submit: { backgroundColor: "#1C1917", borderRadius: 8, paddingVertical: 13, alignItems: "center", marginTop: 18 },
   submitText: { color: "#FAFAF9", fontWeight: "700", fontSize: 16 },
   link: { color: "#44403C", textDecorationLine: "underline", marginTop: 14, textAlign: "center" },
