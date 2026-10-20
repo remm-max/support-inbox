@@ -8,15 +8,19 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  View,
 } from "react-native";
 import { router } from "expo-router";
 import { createTicket } from "../lib/api";
+import { useAuth } from "../lib/auth";
 
 export default function NewTicket() {
   const [email, setEmail] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [doneId, setDoneId] = useState<string | null>(null);
+  const { user } = useAuth();
   const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
@@ -24,12 +28,37 @@ export default function NewTicket() {
     setSubmitting(true);
     try {
       const ticket = await createTicket({ customerEmail: email, subject, body });
-      router.replace(`/ticket/${ticket.id}`);
+      setDoneId(ticket.id);
+      setSubmitting(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
       setSubmitting(false);
     }
   };
+
+  if (doneId) {
+    return (
+      <View style={styles.done}>
+        <Text style={styles.doneTitle}>Ticket sent</Text>
+        <Text style={styles.doneText}>Thanks, we've received your ticket (#{doneId}).</Text>
+        <Pressable
+          style={styles.submit}
+          onPress={() => {
+            setDoneId(null);
+            setSubject("");
+            setBody("");
+          }}
+        >
+          <Text style={styles.submitText}>Submit another</Text>
+        </Pressable>
+        {user && (
+          <Pressable onPress={() => router.replace("/")}>
+            <Text style={styles.doneLink}>Back to inbox</Text>
+          </Pressable>
+        )}
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -82,6 +111,10 @@ export default function NewTicket() {
 
 const styles = StyleSheet.create({
   form: { padding: 16, gap: 6 },
+  done: { padding: 24, gap: 12, maxWidth: 480, width: "100%", alignSelf: "center" },
+  doneTitle: { fontSize: 24, fontWeight: "700", color: "#1C1917" },
+  doneText: { fontSize: 16, color: "#44403C", lineHeight: 22 },
+  doneLink: { color: "#44403C", textDecorationLine: "underline", textAlign: "center", marginTop: 8 },
   label: { fontSize: 14, fontWeight: "600", color: "#44403C", marginTop: 10 },
   input: {
     borderWidth: 1,

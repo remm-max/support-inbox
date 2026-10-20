@@ -3,6 +3,9 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000/graphq
 
 export type Status = "OPEN" | "CLOSED";
 
+export type User = { id: string; email: string };
+export type AuthPayload = { token: string; user: User };
+
 export type Reply = {
   id: string;
   author: "CUSTOMER" | "AGENT";
@@ -21,15 +24,32 @@ export type Ticket = {
 
 export type TicketDetail = Ticket & { replies: Reply[] };
 
+let authToken: string | null = null;
+let onUnauthorized: (() => void) | null = null;
+
+export function setAuthToken(token: string | null) {
+  authToken = token;
+}
+
+export function setUnauthorizedHandler(fn: (() => void) | null) {
+  onUnauthorized = fn;
+}
+
 async function gql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
   const res = await fetch(API_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    },
     body: JSON.stringify({ query, variables }),
   });
   if (!res.ok) throw new Error(`API returned ${res.status}`);
   const json = await res.json();
-  if (json.errors?.length) throw new Error(json.errors[0].message);
+  if (json.errors?.length) {
+    if (json.errors[0].extensions?.code === "UNAUTHENTICATED") onUnauthorized?.();
+    throw new Error(json.errors[0].message);
+  }
   return json.data as T;
 }
 
@@ -88,4 +108,33 @@ export async function setTicketStatus(id: string, status: Status): Promise<Ticke
     { id, status },
   );
   return data.setTicketStatus;
+}
+
+export async function fetchMe(): Promise<User | null> {
+  const data = await gql<{ me: User | null }>(`query { me { id email } }`);
+  return data.me;
+}
+
+export async function login(email: string, password: string): Promise<AuthPayload> {
+  const data = await gql<{ login: AuthPayload }>(
+    `mutation ($email: String!, $password: String!) {
+      login(email: $email, password: $password) { token user { id email } }
+    }`,
+    { email, password },
+  );
+  return data.login;
+}
+
+export async function signup(
+  email: string,
+  password: string,
+  code?: string,
+): Promise<AuthPayload> {
+  const data = await gql<{ signup: AuthPayload }>(
+    `mutation ($email: String!, $password: String!, $code: String) {
+      signup(email: $email, password: $password, code: $code) { token user { id email } }
+    }`,
+    { email, password, code: code || null },
+  );
+  return data.signup;
 }

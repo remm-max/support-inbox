@@ -1,10 +1,15 @@
 import { createServer } from "node:http";
 import { createYoga } from "graphql-yoga";
 import { schema } from "./schema.js";
+import { userFromRequest, type Ctx } from "./auth.js";
 
-const yoga = createYoga({
+const yoga = createYoga<Record<string, never>, Ctx>({
   schema,
-  cors: { origin: "*" }, // tighten this before real users
+  context: ({ request }) => ({ user: userFromRequest(request) }),
+  cors: {
+    origin: "*", // tighten to your deployed web origin before real users
+    allowedHeaders: ["Content-Type", "Authorization"],
+  },
 });
 
 const port = Number(process.env.PORT ?? 4000);

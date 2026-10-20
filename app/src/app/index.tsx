@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { fetchTickets, type Status, type Ticket } from "../lib/api";
+import { RequireAuth, useAuth } from "../lib/auth";
 
 type Filter = Status | "ALL";
 const FILTERS: { key: Filter; label: string }[] = [
@@ -18,7 +19,8 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "CLOSED", label: "Closed" },
 ];
 
-export default function Inbox() {
+function InboxScreen() {
+  const { logout } = useAuth();
   const [filter, setFilter] = useState<Filter>("ALL");
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,9 +61,14 @@ export default function Inbox() {
             </Pressable>
           ))}
         </View>
-        <Pressable style={styles.newBtn} onPress={() => router.push("/new")}>
-          <Text style={styles.newBtnText}>New ticket</Text>
-        </Pressable>
+        <View style={styles.actions}>
+          <Pressable onPress={logout}>
+            <Text style={styles.logoutText}>Log out</Text>
+          </Pressable>
+          <Pressable style={styles.newBtn} onPress={() => router.push("/new")}>
+            <Text style={styles.newBtnText}>New ticket</Text>
+          </Pressable>
+        </View>
       </View>
 
       {error && (
@@ -113,6 +120,8 @@ const styles = StyleSheet.create({
   filterBtn: { paddingVertical: 8, paddingHorizontal: 10 },
   filterText: { fontSize: 15, color: "#78716C" },
   filterActive: { color: "#1C1917", fontWeight: "700" },
+  actions: { flexDirection: "row", alignItems: "center", gap: 14 },
+  logoutText: { color: "#78716C", fontSize: 14 },
   newBtn: { backgroundColor: "#1C1917", paddingVertical: 9, paddingHorizontal: 14, borderRadius: 8 },
   newBtnText: { color: "#FAFAF9", fontWeight: "600" },
   error: { color: "#B91C1C", marginBottom: 12, lineHeight: 20 },
@@ -126,3 +135,11 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13, color: "#78716C", marginTop: 2 },
   preview: { fontSize: 14, color: "#44403C", marginTop: 6, lineHeight: 20 },
 });
+
+export default function Inbox() {
+  return (
+    <RequireAuth>
+      <InboxScreen />
+    </RequireAuth>
+  );
+}

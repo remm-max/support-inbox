@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { RequireAuth } from "../../lib/auth";
 import {
   addReply,
   fetchTicket,
@@ -20,7 +21,7 @@ import {
 
 const when = (iso: string) => new Date(iso).toLocaleString();
 
-export default function TicketScreen() {
+function TicketScreenInner() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -166,3 +167,11 @@ const styles = StyleSheet.create({
   send: { backgroundColor: "#1C1917", borderRadius: 8, paddingVertical: 11, alignItems: "center" },
   sendText: { color: "#FAFAF9", fontWeight: "700" },
 });
+
+export default function TicketScreen() {
+  return (
+    <RequireAuth>
+      <TicketScreenInner />
+    </RequireAuth>
+  );
+}

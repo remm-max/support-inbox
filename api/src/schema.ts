@@ -1,6 +1,8 @@
 import { createSchema } from "graphql-yoga";
 import { GraphQLError } from "graphql";
+import bcrypt from "bcryptjs";
 import { pool } from "./db.js";
+import { signToken, type Ctx } from "./auth.js";
 
 type TicketRow = {
   id: number;
@@ -38,7 +40,18 @@ const toReply = (r: ReplyRow) => ({
 // GraphQLError messages reach the client; plain Errors are masked by Yoga.
 const bad = (message: string) => new GraphQLError(message);
 
-export const schema = createSchema({
+function requireUser(ctx: Ctx) {
+  if (!ctx.user) {
+    throw new GraphQLError("Please log in.", {
+      extensions: { code: "UNAUTHENTICATED" },
+    });
+  }
+  return ctx.user;
+}
+
+const EMAIL_RE = /^\S+@\S+\.\S+$/;
+
+export const schema = createSchema<Ctx>({
   typeDefs: /* GraphQL */ `
     enum TicketStatus {
       OPEN
@@ -48,6 +61,16 @@ export const schema = createSchema({
     enum ReplyAuthor {
       CUSTOMER
       AGENT
+    }
+
+    type User {
+      id: ID!
+      email: String!
+    }
+
+    type AuthPayload {
+      token: String!
+      user: User!
     }
 
     type Reply {
@@ -68,11 +91,14 @@ export const schema = createSchema({
     }
 
     type Query {
+      me: User
       tickets(status: TicketStatus): [Ticket!]!
       ticket(id: ID!): Ticket
     }
 
     type Mutation {
+      signup(email: String!, password: String!, code: String): AuthPayload!
+      login(email: String!, password: String!): AuthPayload!
       createTicket(subject: String!, body: String!, customerEmail: String!): Ticket!
       addReply(ticketId: ID!, body: String!): Reply!
       setTicketStatus(id: ID!, status: TicketStatus!): Ticket!
@@ -80,7 +106,8 @@ export const schema = createSchema({
   `,
   resolvers: {
     Ticket: {
-      replies: async (parent: { id: string }) => {
+      replies: async (parent: { id: string }, _args: unknown, ctx: Ctx) => {
+        requireUser(ctx);
         const { rows } = await pool.query<ReplyRow>(
           "SELECT * FROM replies WHERE ticket_id = $1 ORDER BY created_at ASC, id ASC",
           [Number(parent.id)],
@@ -89,7 +116,11 @@ export const schema = createSchema({
       },
     },
     Query: {
-      tickets: async (_: unknown, args: { status?: "OPEN" | "CLOSED" }) => {
+      me: (_: unknown, _args: unknown, ctx: Ctx) =>
+        ctx.user ? { id: String(ctx.user.id), email: ctx.user.email } : null,
+
+      tickets: async (_: unknown, args: { status?: "OPEN" | "CLOSED" }, ctx: Ctx) => {
+        requireUser(ctx);
         const { rows } = args.status
           ? await pool.query<TicketRow>(
               "SELECT * FROM tickets WHERE status = $1 ORDER BY created_at DESC",
@@ -100,7 +131,9 @@ export const schema = createSchema({
             );
         return rows.map(toTicket);
       },
-      ticket: async (_: unknown, args: { id: string }) => {
+
+      ticket: async (_: unknown, args: { id: string }, ctx: Ctx) => {
+        requireUser(ctx);
         const id = Number(args.id);
         if (!Number.isInteger(id)) return null;
         const { rows } = await pool.query<TicketRow>(
@@ -111,6 +144,46 @@ export const schema = createSchema({
       },
     },
     Mutation: {
+      signup: async (
+        _: unknown,
+        args: { email: string; password: string; code?: string | null },
+      ) => {
+        const required = process.env.SIGNUP_CODE;
+        if (required && args.code !== required) throw bad("Invalid invite code.");
+        const email = args.email.trim().toLowerCase();
+        if (!EMAIL_RE.test(email)) throw bad("Enter a valid email address.");
+        if (args.password.length < 8) throw bad("Password must be at least 8 characters.");
+        const hash = await bcrypt.hash(args.password, 10);
+        try {
+          const { rows } = await pool.query<{ id: number; email: string }>(
+            "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email",
+            [email, hash],
+          );
+          const user = rows[0];
+          return { token: signToken(user), user: { id: String(user.id), email: user.email } };
+        } catch (e) {
+          if ((e as { code?: string }).code === "23505") {
+            throw bad("An account with that email already exists.");
+          }
+          throw e;
+        }
+      },
+
+      login: async (_: unknown, args: { email: string; password: string }) => {
+        const email = args.email.trim().toLowerCase();
+        const { rows } = await pool.query<{ id: number; email: string; password_hash: string }>(
+          "SELECT id, email, password_hash FROM users WHERE email = $1",
+          [email],
+        );
+        const row = rows[0];
+        // Same message either way, so the API doesn't reveal which emails exist.
+        const ok = row ? await bcrypt.compare(args.password, row.password_hash) : false;
+        if (!row || !ok) throw bad("Wrong email or password.");
+        const user = { id: row.id, email: row.email };
+        return { token: signToken(user), user: { id: String(user.id), email: user.email } };
+      },
+
+      // Public on purpose: customers submit tickets without an account.
       createTicket: async (
         _: unknown,
         args: { subject: string; body: string; customerEmail: string },
@@ -120,27 +193,34 @@ export const schema = createSchema({
         const email = args.customerEmail.trim();
         if (!subject) throw bad("Add a subject.");
         if (!body) throw bad("Describe the problem.");
-        if (!/^\S+@\S+\.\S+$/.test(email)) throw bad("Enter a valid email address.");
+        if (!EMAIL_RE.test(email)) throw bad("Enter a valid email address.");
         const { rows } = await pool.query<TicketRow>(
           "INSERT INTO tickets (subject, body, customer_email) VALUES ($1, $2, $3) RETURNING *",
           [subject, body, email],
         );
         return toTicket(rows[0]);
       },
-      addReply: async (_: unknown, args: { ticketId: string; body: string }) => {
+
+      addReply: async (_: unknown, args: { ticketId: string; body: string }, ctx: Ctx) => {
+        requireUser(ctx);
         const body = args.body.trim();
         if (!body) throw bad("Write a reply first.");
         const ticketId = Number(args.ticketId);
         const exists = await pool.query("SELECT 1 FROM tickets WHERE id = $1", [ticketId]);
         if (exists.rowCount === 0) throw bad("That ticket doesn't exist.");
-        // Auth comes in Drop 2; until then every reply is from an agent.
         const { rows } = await pool.query<ReplyRow>(
           "INSERT INTO replies (ticket_id, author, body) VALUES ($1, 'agent', $2) RETURNING *",
           [ticketId, body],
         );
         return toReply(rows[0]);
       },
-      setTicketStatus: async (_: unknown, args: { id: string; status: "OPEN" | "CLOSED" }) => {
+
+      setTicketStatus: async (
+        _: unknown,
+        args: { id: string; status: "OPEN" | "CLOSED" },
+        ctx: Ctx,
+      ) => {
+        requireUser(ctx);
         const { rows } = await pool.query<TicketRow>(
           "UPDATE tickets SET status = $1 WHERE id = $2 RETURNING *",
           [args.status.toLowerCase(), Number(args.id)],
