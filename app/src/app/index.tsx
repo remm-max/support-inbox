@@ -1,15 +1,25 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { fetchTickets, type Ticket } from "../lib/api";
+import { router, useFocusEffect } from "expo-router";
+import { fetchTickets, type Status, type Ticket } from "../lib/api";
+
+type Filter = Status | "ALL";
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: "ALL", label: "All" },
+  { key: "OPEN", label: "Open" },
+  { key: "CLOSED", label: "Closed" },
+];
 
 export default function Inbox() {
+  const [filter, setFilter] = useState<Filter>("ALL");
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -18,15 +28,18 @@ export default function Inbox() {
   const load = useCallback(async () => {
     try {
       setError(null);
-      setTickets(await fetchTickets());
+      setTickets(await fetchTickets(filter === "ALL" ? undefined : filter));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     }
-  }, []);
+  }, [filter]);
 
-  useEffect(() => {
-    load().finally(() => setLoading(false));
-  }, [load]);
+  // Reload whenever this screen gains focus (e.g. after creating or closing a ticket).
+  useFocusEffect(
+    useCallback(() => {
+      load().finally(() => setLoading(false));
+    }, [load]),
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -34,51 +47,74 @@ export default function Inbox() {
     setRefreshing(false);
   };
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.screen}>
-      <Text style={styles.title}>Inbox</Text>
+      <View style={styles.toolbar}>
+        <View style={styles.filters}>
+          {FILTERS.map((f) => (
+            <Pressable key={f.key} onPress={() => setFilter(f.key)} style={styles.filterBtn}>
+              <Text style={[styles.filterText, filter === f.key && styles.filterActive]}>
+                {f.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Pressable style={styles.newBtn} onPress={() => router.push("/new")}>
+          <Text style={styles.newBtnText}>New ticket</Text>
+        </Pressable>
+      </View>
+
       {error && (
         <Text style={styles.error}>
           Can't reach the API: {error}. Check that it's running and that
           EXPO_PUBLIC_API_URL points to it.
         </Text>
       )}
-      <FlatList
-        data={tickets}
-        keyExtractor={(t) => t.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListEmptyComponent={
-          !error ? <Text style={styles.empty}>No tickets yet. Run "npm run seed" in api/.</Text> : null
-        }
-        renderItem={({ item }) => (
-          <View style={styles.row}>
-            <View style={styles.rowTop}>
-              <Text style={styles.subject} numberOfLines={1}>{item.subject}</Text>
-              <Text style={[styles.status, item.status === "OPEN" ? styles.open : styles.closed]}>
-                {item.status === "OPEN" ? "Open" : "Closed"}
+
+      {loading ? (
+        <ActivityIndicator style={{ marginTop: 32 }} />
+      ) : (
+        <FlatList
+          data={tickets}
+          keyExtractor={(t) => t.id}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          ListEmptyComponent={
+            !error ? <Text style={styles.empty}>No tickets here yet.</Text> : null
+          }
+          renderItem={({ item }) => (
+            <Pressable
+              style={styles.row}
+              onPress={() => router.push(`/ticket/${item.id}`)}
+            >
+              <View style={styles.rowTop}>
+                <Text style={styles.subject} numberOfLines={1}>
+                  {item.subject}
+                </Text>
+                <Text style={[styles.status, item.status === "OPEN" ? styles.open : styles.closed]}>
+                  {item.status === "OPEN" ? "Open" : "Closed"}
+                </Text>
+              </View>
+              <Text style={styles.meta}>{item.customerEmail}</Text>
+              <Text style={styles.preview} numberOfLines={2}>
+                {item.body}
               </Text>
-            </View>
-            <Text style={styles.meta}>{item.customerEmail}</Text>
-            <Text style={styles.preview} numberOfLines={2}>{item.body}</Text>
-          </View>
-        )}
-      />
+            </Pressable>
+          )}
+        />
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#FAFAF9", paddingTop: 56, paddingHorizontal: 16 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  title: { fontSize: 28, fontWeight: "700", marginBottom: 12, color: "#1C1917" },
+  screen: { flex: 1, paddingHorizontal: 16 },
+  toolbar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  filters: { flexDirection: "row", gap: 4 },
+  filterBtn: { paddingVertical: 8, paddingHorizontal: 10 },
+  filterText: { fontSize: 15, color: "#78716C" },
+  filterActive: { color: "#1C1917", fontWeight: "700" },
+  newBtn: { backgroundColor: "#1C1917", paddingVertical: 9, paddingHorizontal: 14, borderRadius: 8 },
+  newBtnText: { color: "#FAFAF9", fontWeight: "600" },
   error: { color: "#B91C1C", marginBottom: 12, lineHeight: 20 },
   empty: { color: "#78716C", marginTop: 24 },
   row: { paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#D6D3D1" },
