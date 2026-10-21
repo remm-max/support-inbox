@@ -125,11 +125,11 @@ export const schema = createSchema<Ctx>({
         requireUser(ctx);
         const { rows } = args.status
           ? await pool.query<TicketRow>(
-              "SELECT * FROM tickets WHERE status = $1 ORDER BY created_at DESC",
+              "SELECT * FROM tickets WHERE status = $1 ORDER BY created_at DESC LIMIT 50",
               [args.status.toLowerCase()],
             )
           : await pool.query<TicketRow>(
-              "SELECT * FROM tickets ORDER BY created_at DESC",
+              "SELECT * FROM tickets ORDER BY created_at DESC LIMIT 50" ,
             );
         return rows.map(toTicket);
       },
